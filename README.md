@@ -113,24 +113,24 @@ This creates sample satellite alerts that trigger UAV assignments.
 ### Start All Services
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### View Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f api
-docker-compose logs -f uav_sim
+docker compose logs -f api
+docker compose logs -f uav_sim
 ```
 
 ### Stop Services
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Clean Up (Remove Data)
@@ -297,7 +297,7 @@ GitHub Actions workflow automatically:
 
 ## Demo Workflow
 
-1. **Start the system**: `docker-compose up -d`
+1. **Start the system**: `docker compose up -d`
 2. **Generate alerts**: `./scripts/generate_alerts.sh`
 3. **Watch the magic**:
    - Scheduler assigns UAVs to alerts

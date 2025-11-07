@@ -12,11 +12,11 @@ fi
 
 # Build all Docker images
 echo "Building Docker images..."
-docker-compose build
+docker compose build
 
 # Start the system
 echo "Starting all services..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be healthy
 echo "Waiting for services to start..."
