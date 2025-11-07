@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import math
+import threading
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -172,7 +173,6 @@ def main():
         simulators.append(sim)
     
     # Start all simulators in separate threads
-    import threading
     threads = []
     for sim in simulators:
         thread = threading.Thread(target=sim.run)
