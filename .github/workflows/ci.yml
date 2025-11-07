@@ -1,0 +1,96 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 pytest
+    
+    - name: Lint Python code
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 services/api services/scheduler services/uav_sim services/edge_infer --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 services/api services/scheduler services/uav_sim services/edge_infer --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install Node dependencies
+      run: |
+        cd services/dashboard
+        npm ci
+    
+    - name: Lint React code
+      run: |
+        cd services/dashboard
+        npm run build
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build API service
+      run: docker build -t event-api ./services/api
+    
+    - name: Build Scheduler service
+      run: docker build -t event-scheduler ./services/scheduler
+    
+    - name: Build UAV Simulator
+      run: docker build -t event-uav-sim ./services/uav_sim
+    
+    - name: Build Edge Inference
+      run: docker build -t event-edge-infer ./services/edge_infer
+    
+    - name: Build Dashboard
+      run: docker build -t event-dashboard ./services/dashboard
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Start services
+      run: |
+        docker compose up -d
+        sleep 30
+    
+    - name: Check service health
+      run: |
+        curl -f http://localhost:8000/health || exit 1
+    
+    - name: Run integration tests
+      run: |
+        # Add integration tests here
+        echo "Integration tests would run here"
+    
+    - name: Stop services
+      if: always()
+      run: docker compose down -v

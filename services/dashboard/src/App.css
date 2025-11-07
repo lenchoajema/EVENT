@@ -1,0 +1,45 @@
+.App {
+  text-align: center;
+}
+
+.header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+}
+
+.header h1 {
+  margin: 0 0 20px 0;
+  font-size: 28px;
+}
+
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.stat-card {
+  background-color: #3a3f47;
+  padding: 15px 30px;
+  border-radius: 8px;
+  min-width: 150px;
+}
+
+.stat-card h3 {
+  margin: 0;
+  font-size: 32px;
+  color: #61dafb;
+}
+
+.stat-card p {
+  margin: 5px 0 0 0;
+  font-size: 14px;
+  color: #aaa;
+}
+
+.custom-icon {
+  background: transparent !important;
+  border: none !important;
+}

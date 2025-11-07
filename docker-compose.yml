@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: event_postgres
+    environment:
+      POSTGRES_DB: event_db
+      POSTGRES_USER: event_user
+      POSTGRES_PASSWORD: event_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U event_user -d event_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: event_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: event_mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 | grep -v Error || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: event_api
+    environment:
+      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+      REDIS_URL: redis://redis:6379
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./services/api:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  scheduler:
+    build:
+      context: ./services/scheduler
+      dockerfile: Dockerfile
+    container_name: event_scheduler
+    environment:
+      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+      REDIS_URL: redis://redis:6379
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./services/scheduler:/app
+    command: celery -A app.celery_app worker --loglevel=info
+
+  scheduler_beat:
+    build:
+      context: ./services/scheduler
+      dockerfile: Dockerfile
+    container_name: event_scheduler_beat
+    environment:
+      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+      REDIS_URL: redis://redis:6379
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/scheduler:/app
+    command: celery -A app.celery_app beat --loglevel=info
+
+  uav_sim:
+    build:
+      context: ./services/uav_sim
+      dockerfile: Dockerfile
+    container_name: event_uav_sim
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./services/uav_sim:/app
+
+  edge_infer:
+    build:
+      context: ./services/edge_infer
+      dockerfile: Dockerfile
+    container_name: event_edge_infer
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/edge_infer:/app
+      - ./services/edge_infer/models:/app/models
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+    container_name: event_dashboard
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./services/dashboard:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
