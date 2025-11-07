@@ -1,0 +1,6 @@
+celery[redis]==5.3.4
+sqlalchemy==2.0.23
+geoalchemy2==0.14.2
+psycopg2-binary==2.9.9
+paho-mqtt==1.6.1
+redis==5.0.1
