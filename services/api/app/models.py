@@ -5,6 +5,9 @@ from geoalchemy2 import Geometry
 
 from .database import Base
 
+# Import auth models to ensure they're registered
+from .auth_models import User, Role, RefreshToken, AuditLog, Zone, SystemConfig, user_roles
+
 
 class Tile(Base):
     """Geographic tiles for satellite monitoring coverage."""
