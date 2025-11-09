@@ -84,7 +84,7 @@ class SatelliteAlert(Base):
     severity = Column(String(20), default="medium")  # low, medium, high, critical
     priority = Column(Integer, default=0, index=True)
     status = Column(String(20), default="new", index=True)  # new, assigned, investigating, verified, false_positive
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tile = relationship("Tile", back_populates="alerts")
@@ -105,7 +105,7 @@ class Detection(Base):
     longitude = Column(Float)
     bbox = Column(JSON)  # Bounding box coordinates
     image_url = Column(String(500))
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -128,7 +128,7 @@ class Telemetry(Base):
     speed = Column(Float)
     heading = Column(Float)
     status = Column(String(20))
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     uav = relationship("UAV", back_populates="telemetry")
@@ -147,7 +147,7 @@ class Evidence(Base):
     file_size = Column(Integer)
     mime_type = Column(String(100))
     checksum = Column(String(100))
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     detection = relationship("Detection", back_populates="evidence")

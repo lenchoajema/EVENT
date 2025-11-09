@@ -67,12 +67,12 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-adminpassword}
     ports:
       - "9000:9000"
-      - "9001:9001"
+      - "9002:9002"
     volumes:
       - minio_data:/data
     networks:
       - event_network
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9002"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
