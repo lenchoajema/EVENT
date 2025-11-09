@@ -1,27 +1,48 @@
 #!/bin/bash
+set -e
 
-# Generate sample satellite alerts for testing
+# Generate satellite alerts for different scenarios
 
 API_URL="${API_URL:-http://localhost:8000}"
+SCENARIO="${1:-mixed}"  # sar, border, fire, surveillance, mixed
+COUNT="${2:-5}"
 
-echo "Generating sample satellite alerts..."
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Sample alert locations around San Francisco
-ALERTS=(
-    '{"alert_type": "fire", "severity": "high", "latitude": 37.7849, "longitude": -122.4294, "description": "Wildfire detected in urban area"}'
-    '{"alert_type": "flood", "severity": "medium", "latitude": 37.7649, "longitude": -122.4094, "description": "Flood warning in residential zone"}'
-    '{"alert_type": "smoke", "severity": "low", "latitude": 37.7549, "longitude": -122.4494, "description": "Smoke plume detected"}'
-    '{"alert_type": "vehicle", "severity": "medium", "latitude": 37.7949, "longitude": -122.3994, "description": "Abandoned vehicle detected"}'
-    '{"alert_type": "building_damage", "severity": "high", "latitude": 37.7749, "longitude": -122.4594, "description": "Structural damage identified"}'
-)
+echo "============================================================"
+echo "Satellite Alert Generator"
+echo "============================================================"
+echo ""
+echo "Scenario: ${SCENARIO}"
+echo "Count: ${COUNT}"
+echo ""
 
-for alert in "${ALERTS[@]}"; do
-    echo "Creating alert: $alert"
-    curl -X POST "$API_URL/api/alerts" \
-        -H "Content-Type: application/json" \
-        -d "$alert"
-    echo ""
-    sleep 1
-done
+# Check if API is available
+if ! curl -sf ${API_URL}/health > /dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  API is not available. Please start the system first.${NC}"
+    exit 1
+fi
 
-echo "Sample alerts created successfully!"
+# Run detection stub with batch mode
+echo -e "${YELLOW}Generating ${COUNT} ${SCENARIO} alerts...${NC}"
+echo ""
+
+docker-compose run --rm \
+    -e API_URL=${API_URL} \
+    -e SCENARIO=${SCENARIO} \
+    -e MODE=batch \
+    -e ALERT_COUNT=${COUNT} \
+    detection_stub
+
+echo ""
+echo -e "${GREEN}✅ Alerts generated successfully!${NC}"
+echo ""
+echo "View results:"
+echo "  Dashboard: http://localhost:3000"
+echo "  API: ${API_URL}/api/v1/sat/alerts"
+echo ""
+

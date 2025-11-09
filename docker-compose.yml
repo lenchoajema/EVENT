@@ -1,19 +1,26 @@
-version: '3.8'
+version: '3.9'
+
+networks:
+  event_network:
+    driver: bridge
 
 services:
   postgres:
     image: postgis/postgis:15-3.3
     container_name: event_postgres
     environment:
-      POSTGRES_DB: event_db
-      POSTGRES_USER: event_user
-      POSTGRES_PASSWORD: event_pass
+      POSTGRES_DB: ${POSTGRES_DB:-mvp}
+      POSTGRES_USER: ${POSTGRES_USER:-mvp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mvp}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/init_postgis.sql:/docker-entrypoint-initdb.d/01_init.sql
+    networks:
+      - event_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U event_user -d event_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mvp} -d ${POSTGRES_DB:-mvp}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -23,11 +30,16 @@ services:
     container_name: event_redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - event_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    command: redis-server --appendonly yes
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -37,22 +49,50 @@ services:
       - "9001:9001"
     volumes:
       - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    networks:
+      - event_network
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 | grep -v Error || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    container_name: event_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-adminpassword}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - event_network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+
   api:
     build:
       context: ./services/api
       dockerfile: Dockerfile
     container_name: event_api
+    env_file:
+      - .env.example
     environment:
-      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+      REDIS_URL: redis://redis:6379/0
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
+      MINIO_ENDPOINT: minio:9000
     ports:
       - "8000:8000"
     depends_on:
@@ -62,18 +102,28 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - event_network
     volumes:
-      - ./services/api:/app
+      - ./services/api/app:/app/app
+      - ./infra/seed_tiles.py:/app/seed_tiles.py
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
 
   scheduler:
     build:
       context: ./services/scheduler
       dockerfile: Dockerfile
     container_name: event_scheduler
+    env_file:
+      - .env.example
     environment:
-      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
     depends_on:
@@ -83,18 +133,26 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - event_network
     volumes:
-      - ./services/scheduler:/app
-    command: celery -A app.celery_app worker --loglevel=info
+      - ./services/scheduler/app:/app/app
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    restart: unless-stopped
 
   scheduler_beat:
     build:
       context: ./services/scheduler
       dockerfile: Dockerfile
     container_name: event_scheduler_beat
+    env_file:
+      - .env.example
     environment:
-      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
     depends_on:
@@ -102,42 +160,84 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - event_network
     volumes:
-      - ./services/scheduler:/app
+      - ./services/scheduler/app:/app/app
     command: celery -A app.celery_app beat --loglevel=info
+    restart: unless-stopped
+
 
   uav_sim:
     build:
       context: ./services/uav_sim
       dockerfile: Dockerfile
     container_name: event_uav_sim
+    env_file:
+      - .env.example
     environment:
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
-      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+      UAV_COUNT: ${UAV_COUNT:-5}
     depends_on:
       mosquitto:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - event_network
     volumes:
       - ./services/uav_sim:/app
+    restart: unless-stopped
 
   edge_infer:
     build:
       context: ./services/edge_infer
       dockerfile: Dockerfile
     container_name: event_edge_infer
+    env_file:
+      - .env.example
     environment:
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
-      DATABASE_URL: postgresql://event_user:event_pass@postgres:5432/event_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+      API_URL: http://api:8000
     depends_on:
       mosquitto:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - event_network
     volumes:
       - ./services/edge_infer:/app
-      - ./services/edge_infer/models:/app/models
+      - ./models:/app/models
+    restart: unless-stopped
+
+  detection_stub:
+    build:
+      context: ./services/detection_stub
+      dockerfile: Dockerfile
+    container_name: event_detection_stub
+    env_file:
+      - .env.example
+    environment:
+      API_URL: http://api:8000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mvp}:${POSTGRES_PASSWORD:-mvp}@postgres:5432/${POSTGRES_DB:-mvp}
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - event_network
+    profiles:
+      - demo
+    restart: "no"
+
 
   dashboard:
     build:
@@ -146,13 +246,28 @@ services:
     container_name: event_dashboard
     environment:
       REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_WS_URL: ws://localhost:8000/ws
     ports:
       - "3000:3000"
     depends_on:
       - api
+    networks:
+      - event_network
     volumes:
-      - ./services/dashboard:/app
+      - ./services/dashboard/src:/app/src
+      - ./services/dashboard/public:/app/public
       - /app/node_modules
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  mosquitto_data:
+    driver: local
+  mosquitto_logs:
+    driver: local
+
