@@ -19,6 +19,13 @@ from sqlalchemy.orm import Session
 from .auth_models import User, Role, RefreshToken, Permission
 from .database import get_db
 
+# Blacklist support (Redis if available, otherwise in-memory)
+import hashlib
+try:
+    import redis as _redis  # optional
+except Exception:
+    _redis = None
+
 
 # Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
@@ -120,6 +127,79 @@ def decode_access_token(token: str) -> dict:
         raise AuthenticationError("Token has expired")
     except jwt.InvalidTokenError:
         raise AuthenticationError("Invalid token")
+
+
+# Access token blacklist manager
+class AccessTokenBlacklist:
+    def __init__(self):
+        self._use_redis = False
+        self._redis = None
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url and _redis is not None:
+            try:
+                self._redis = _redis.from_url(redis_url)
+                self._use_redis = True
+            except Exception:
+                self._use_redis = False
+
+        # In-memory store: token_hash -> expiry_timestamp (float)
+        self._store = {}
+
+    def blacklist_token(self, token: str, expires_at: Optional[datetime] = None):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        if self._use_redis:
+            ttl = None
+            if expires_at:
+                ttl = int((expires_at - datetime.utcnow()).total_seconds())
+            else:
+                ttl = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            if ttl < 0:
+                ttl = 0
+            try:
+                self._redis.setex(f"blacklist:{token_hash}", ttl, "1")
+            except Exception:
+                # Redis failure should not block logout
+                pass
+        else:
+            exp_ts = expires_at.timestamp() if expires_at else (datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()
+            self._store[token_hash] = exp_ts
+
+    def is_blacklisted(self, token: str) -> bool:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        if self._use_redis:
+            try:
+                return self._redis.get(f"blacklist:{token_hash}") is not None
+            except Exception:
+                return False
+        else:
+            exp_ts = self._store.get(token_hash)
+            if not exp_ts:
+                return False
+            if exp_ts < datetime.utcnow().timestamp():
+                # expired -> cleanup
+                try:
+                    del self._store[token_hash]
+                except KeyError:
+                    pass
+                return False
+            return True
+
+
+# Global blacklist instance
+token_blacklist = AccessTokenBlacklist()
+
+
+def blacklist_access_token(token: str):
+    """Blacklist an access token until its expiry. Non-fatal if decode fails."""
+    try:
+        # decode without verifying expiration to read exp claim
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], audience="event-api", options={"verify_exp": False})
+        exp = payload.get("exp")
+        expires_at = datetime.utcfromtimestamp(exp) if exp else None
+    except Exception:
+        expires_at = None
+
+    token_blacklist.blacklist_token(token, expires_at)
 
 
 def verify_refresh_token(token: str, db: Session) -> Optional[User]:
@@ -246,6 +326,17 @@ async def get_current_user(
     try:
         token = credentials.credentials
         payload = decode_access_token(token)
+
+        # Check if the token is blacklisted (revoked)
+        try:
+            if token_blacklist.is_blacklisted(token):
+                raise AuthenticationError("Token has been revoked")
+        except AuthenticationError:
+            raise
+        except Exception:
+            # If blacklist check fails for any reason, fail-safe to allow auth
+            # rather than blocking due to monitoring/backing service issues.
+            pass
         
         # Verify user exists and is active
         user_id = payload.get("sub")

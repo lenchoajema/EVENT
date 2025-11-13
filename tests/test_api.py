@@ -63,3 +63,11 @@ def test_create_detection():
     data = response.json()
     assert data["object_class"] == "fire"
     assert data["confidence"] == 0.95
+
+
+def test_metrics_endpoint():
+    response = client.get("/metrics")
+    # Prometheus text format should be returned
+    assert response.status_code == 200
+    content_type = response.headers.get("content-type", "")
+    assert "text/plain" in content_type

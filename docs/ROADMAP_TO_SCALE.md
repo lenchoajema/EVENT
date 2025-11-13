@@ -1138,3 +1138,25 @@ class SwarmController:
 **Document Status:** ✅ Complete  
 **Last Updated:** November 9, 2025  
 **Review Cycle:** Quarterly
+
+## Implementation note: Observability (small infra)
+
+Added a lightweight Prometheus metrics endpoint to the API to support basic observability during Phase 1 and beyond.
+
+- Endpoint: `/metrics` served on the API port alongside the application routes.
+- Format: Prometheus text exposition format (`text/plain; version=0.0.4`)
+- What it exposes (minimal, default): request counters, latency histograms, and exception counters.
+- How to scrape: configure Prometheus with a job that scrapes the API service (port where API runs) and the `/metrics` path.
+
+Recommendation: run Prometheus + Grafana in Phase 1 (single-site) to collect these metrics and build simple dashboards (requests/sec, 95th percentile latency, error rate). For Phase 2+, expand metrics with per-endpoint business metrics and instrument Celery tasks and MQTT throughput.
+
+Configuration: Development Mode
+
+The API supports a `DEV_MODE` environment flag to control relaxed behavior useful during development and testing. When `DEV_MODE=true` (default), some endpoints will return lightweight fallback responses if dependent services (database, MQTT) are unavailable. Set `DEV_MODE=false` in production to make the API fail fast and surface infrastructure errors.
+
+Example (Linux/macOS):
+
+```
+export DEV_MODE=false
+# start the API
+```
