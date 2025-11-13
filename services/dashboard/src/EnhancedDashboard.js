@@ -1,6 +1,136 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './Dashboard.css';
 
+// Client-side logging helper that also writes a small in-page buffer
+function logClient(...args) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.__EVENT_DEBUG_LOG = window.__EVENT_DEBUG_LOG || [];
+      const text = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+      window.__EVENT_DEBUG_LOG.push(`${new Date().toISOString()} ${text}`);
+      // Keep buffer short
+      if (window.__EVENT_DEBUG_LOG.length > 200) window.__EVENT_DEBUG_LOG.shift();
+    }
+  } catch (e) {}
+  // Also emit to normal console so developers can see it
+  // eslint-disable-next-line no-console
+  console.debug(...args);
+}
+
+function warnClient(...args) {
+  try { if (typeof window !== 'undefined') { window.__EVENT_DEBUG_LOG = window.__EVENT_DEBUG_LOG || []; window.__EVENT_DEBUG_LOG.push(`${new Date().toISOString()} WARN ${args.join(' ')}`); if (window.__EVENT_DEBUG_LOG.length > 200) window.__EVENT_DEBUG_LOG.shift(); } } catch(e) {}
+  // eslint-disable-next-line no-console
+  console.warn(...args);
+}
+
+function errorClient(...args) {
+  try { if (typeof window !== 'undefined') { window.__EVENT_DEBUG_LOG = window.__EVENT_DEBUG_LOG || []; window.__EVENT_DEBUG_LOG.push(`${new Date().toISOString()} ERROR ${args.join(' ')}`); if (window.__EVENT_DEBUG_LOG.length > 200) window.__EVENT_DEBUG_LOG.shift(); } } catch(e) {}
+  // eslint-disable-next-line no-console
+  console.error(...args);
+}
+
+// API / WebSocket candidate helpers and fallback fetch
+function getApiCandidates() {
+  const apiUrl = process.env.REACT_APP_API_URL;
+
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
+
+  // Codespaces: detect hostnames like <name>-<port>.app.github.dev and map to -8000
+  const codespaceMatch = hostname.match(/^(.*)-(\d+)\.app\.github\.dev$/);
+  // If a REACT_APP_API_URL is provided and points to localhost, but the
+  // browser is visiting a Codespace hostname, rewrite it to the Codespace
+  // mapped -8000 hostname so API calls go to the forwarded API tunnel.
+  if (apiUrl && apiUrl.includes('localhost') && codespaceMatch) {
+    const base = codespaceMatch[1];
+    const primary = `${protocol}://${base}-8000.app.github.dev`;
+    const fallback = `${protocol}://${hostname}:8000`;
+    logClient('REACT_APP_API_URL rewritten from localhost to Codespace candidates', { original: apiUrl, candidates: [primary, fallback] });
+    return [primary, fallback];
+  }
+
+  if (apiUrl) return [apiUrl];
+  if (codespaceMatch) {
+    const base = codespaceMatch[1];
+    const primary = `${protocol}://${base}-8000.app.github.dev`;
+    const fallback = `${protocol}://${hostname}:8000`; // same host, explicit :8000
+    const candidates = [primary, fallback];
+    logClient('API candidates (codespace):', candidates);
+    return candidates;
+  }
+
+  // In local development (CRA), use relative paths so the dev server can proxy
+  if (process.env.NODE_ENV === 'development') {
+    logClient('API candidates (development):', ['']);
+    return [''];
+  }
+
+  // Production: assume API is on same host but different port
+  const prodCandidate = `${protocol}://${hostname}:8000`;
+  logClient('API candidates (production):', [prodCandidate]);
+  return [prodCandidate];
+}
+
+function getWsCandidates() {
+  const apiCandidates = getApiCandidates();
+  const wsCandidates = apiCandidates.map(u => {
+    if (!u) {
+      // relative -> derive from current location
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const hostname = window.location.hostname;
+      const codespaceMatch = hostname.match(/^(.*)-(\d+)\.app\.github\.dev$/);
+      if (codespaceMatch) {
+        const apiHost = `${codespaceMatch[1]}-8000.app.github.dev`;
+        return `${proto}://${apiHost}`;
+      }
+      const host = window.location.host.replace(/:3000$/, ':8000');
+      return `${proto}://${host}`;
+    }
+    return `${u.startsWith('https') ? 'wss' : 'ws'}://${u.replace(/^https?:\/\//, '')}`;
+  });
+  logClient('WebSocket candidates:', wsCandidates);
+  return wsCandidates;
+}
+
+
+
+// Helper to try fetch against multiple API candidates sequentially
+async function fetchWithFallback(path, options = {}) {
+  const candidatesRaw = getApiCandidates();
+  // If the dashboard is not running on localhost, prefer non-localhost candidates.
+  const candidates = candidatesRaw.filter(c => {
+    if (!c) return true; // keep relative candidate
+    if (c.includes('localhost') && window.location.hostname !== 'localhost') {
+      logClient('fetchWithFallback: removing localhost candidate because browser host is not localhost', c);
+      return false;
+    }
+    return true;
+  });
+  logClient('fetchWithFallback: candidates to try', candidates);
+  const errors = [];
+  for (const base of candidates) {
+    const url = base ? `${base}${path.startsWith('/') ? path : `/${path}`}` : path;
+    logClient('fetchWithFallback: trying', url);
+    try {
+      const res = await fetch(url, options);
+      logClient('fetchWithFallback: response', url, res.status);
+      if (!res.ok) {
+        // Return the response so caller can inspect status (and we log it)
+        warnClient('fetchWithFallback: non-OK response', url, res.status);
+        return res;
+      }
+      return res;
+    } catch (err) {
+      warnClient('fetchWithFallback: error for', url, err && err.message ? err.message : err);
+      errors.push({ url, err });
+      // try next candidate
+    }
+  }
+  // If all failed, throw last error
+  const last = errors.length ? errors[errors.length - 1].err : new Error('No candidates');
+  throw last;
+}
+
 // WebSocket connection manager
 class WebSocketManager {
   constructor() {
@@ -9,40 +139,73 @@ class WebSocketManager {
   }
 
   connect(channel, token, onMessage) {
-    const ws = new WebSocket(`ws://localhost:8000/ws/${channel}?token=${token}`);
-    
-    ws.onopen = () => {
-      console.log(`✓ Connected to ${channel}`);
-      if (this.reconnectTimers[channel]) {
-        clearTimeout(this.reconnectTimers[channel]);
-        delete this.reconnectTimers[channel];
+    const candidates = getWsCandidates();
+    let ws = null;
+    let connected = false;
+    logClient(`WebSocketManager: connecting channel='${channel}' tokenPresent=${!!token} candidates=`, candidates);
+    const tryConnect = (index = 0) => {
+      if (index >= candidates.length) {
+        // All candidates failed; schedule reconnect
+        this.reconnectTimers[channel] = setTimeout(() => {
+          tryConnect(0);
+        }, 5000);
+        return;
       }
-    };
-    
-    ws.onmessage = (event) => {
+
+      const url = `${candidates[index]}/ws/${channel}?token=${token}`;
+      logClient('WebSocketManager: attempting', url);
       try {
-        const data = JSON.parse(event.data);
-        onMessage(data);
-      } catch (e) {
-        console.error('WebSocket message parse error:', e);
+        ws = new WebSocket(url);
+      } catch (err) {
+        errorClient(`WebSocket construction failed for ${url}:`, err && err.message ? err.message : err);
+        // try next candidate
+        tryConnect(index + 1);
+        return;
       }
+
+      ws.onopen = () => {
+        connected = true;
+        console.log(`✓ Connected to ${channel} via ${url}`);
+        if (this.reconnectTimers[channel]) {
+          clearTimeout(this.reconnectTimers[channel]);
+          delete this.reconnectTimers[channel];
+        }
+        this.connections[channel] = ws;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onMessage(data);
+        } catch (e) {
+          console.error('WebSocket message parse error:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        errorClient(`WebSocket error on ${channel} (${url}):`, error && error.message ? error.message : error);
+      };
+
+      ws.onclose = (ev) => {
+        // If we were not connected and closed quickly, try next candidate
+        logClient(`WebSocket closed for ${url} code=${ev.code} reason=${ev.reason}`);
+        if (!connected) {
+          console.log(`Connection to ${url} failed, trying next candidate`);
+          tryConnect(index + 1);
+          return;
+        }
+        console.log(`Disconnected from ${channel} (was connected)`);
+        // Auto-reconnect after 5 seconds
+        this.reconnectTimers[channel] = setTimeout(() => {
+          tryConnect(0);
+        }, 5000);
+      };
     };
-    
-    ws.onerror = (error) => {
-      console.error(`WebSocket error on ${channel}:`, error);
+
+    tryConnect(0);
+    return {
+      close: () => ws && ws.close(),
     };
-    
-    ws.onclose = () => {
-      console.log(`Disconnected from ${channel}`);
-      // Auto-reconnect after 5 seconds
-      this.reconnectTimers[channel] = setTimeout(() => {
-        console.log(`Reconnecting to ${channel}...`);
-        this.connect(channel, token, onMessage);
-      }, 5000);
-    };
-    
-    this.connections[channel] = ws;
-    return ws;
   }
 
   disconnect(channel) {
@@ -96,7 +259,7 @@ const EnhancedDashboard = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/login', {
+      const response = await fetchWithFallback('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
@@ -168,21 +331,21 @@ const EnhancedDashboard = () => {
 
     try {
       // Load UAVs
-      const uavsRes = await fetch('http://localhost:8000/api/v1/uavs', { headers });
+      const uavsRes = await fetchWithFallback('/api/v1/uavs', { headers });
       const uavsData = await uavsRes.json();
       setUavs(uavsData);
 
       // Load missions
-      const missionsRes = await fetch('http://localhost:8000/api/v1/missions', { headers });
+      const missionsRes = await fetchWithFallback('/api/v1/missions', { headers });
       const missionsData = await missionsRes.json();
       setMissions(missionsData);
 
       // Load analytics
-      const metricsRes = await fetch('http://localhost:8000/api/v2/analytics/performance', { headers });
+      const metricsRes = await fetchWithFallback('/api/v2/analytics/performance', { headers });
       const metricsData = await metricsRes.json();
       setMetrics(metricsData);
 
-      const coverageRes = await fetch('http://localhost:8000/api/v2/analytics/coverage', { headers });
+      const coverageRes = await fetchWithFallback('/api/v2/analytics/coverage', { headers });
       const coverageData = await coverageRes.json();
       setCoverage(coverageData);
     } catch (err) {
@@ -228,6 +391,20 @@ const EnhancedDashboard = () => {
           <p>Emergent Vehicle Event-detection via NRT Telemetry</p>
           
           {error && <div className="error-message">{error}</div>}
+
+          {/* Inline debug panel (shows recent client debug messages) */}
+          <div style={{marginTop:12, fontSize:12, color:'#666'}}>
+            <strong>Client debug (recent):</strong>
+            <div style={{maxHeight:120, overflow:'auto', background:'#111', color:'#bada55', padding:8, marginTop:6, borderRadius:4}}>
+              {typeof window !== 'undefined' && window.__EVENT_DEBUG_LOG && window.__EVENT_DEBUG_LOG.length > 0 ? (
+                window.__EVENT_DEBUG_LOG.slice(-10).map((line, idx) => (
+                  <div key={idx} style={{fontFamily:'monospace', fontSize:11}}>{line}</div>
+                ))
+              ) : (
+                <div style={{fontFamily:'monospace', fontSize:11}}>no client logs yet</div>
+              )}
+            </div>
+          </div>
           
           <form onSubmit={handleLogin}>
             <div className="form-group">

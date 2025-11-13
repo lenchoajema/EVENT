@@ -1,5 +1,4 @@
 import paho.mqtt.client as mqtt
-from ultralytics import YOLO
 import json
 import logging
 import os
@@ -7,6 +6,21 @@ import time
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import numpy as np
+import torch
+
+# Patch torch.load to disable weights_only for PyTorch 2.6+ compatibility
+_original_torch_load = torch.load
+
+def _torch_load_patch(f, *args, **kwargs):
+    """Patch torch.load to use weights_only=False by default for backwards compatibility."""
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(f, *args, **kwargs)
+
+torch.load = _torch_load_patch
+
+# Now import YOLO after patching torch.load
+from ultralytics import YOLO
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

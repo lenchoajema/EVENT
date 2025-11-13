@@ -128,14 +128,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+# CORS configuration - allow all origins in dev mode, restrict in production
+cors_origins_env = os.getenv("CORS_ORIGINS", "").strip()
+if cors_origins_env:
+    # Explicit CORS origins provided
+    cors_origins = [url.strip() for url in cors_origins_env.split(",") if url.strip()]
+else:
+    # Default origins for local development
+    cors_origins = ["http://localhost:3000", "http://localhost:8000", "https://localhost:3000", "https://localhost:8000"]
+
+# In development, also allow common dev container patterns
+if os.getenv("DEV_MODE", "true").lower() in ("1", "true", "yes"):
+    # Add wildcard for dev containers/Codespaces
+    cors_origins.append("*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_credentials=True if "*" not in cors_origins else False,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r".*\.github\.dev$" if not cors_origins else None,
 )
 
 # Include lightweight MVP routes that implement core /api/* endpoints
