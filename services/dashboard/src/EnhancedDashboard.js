@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './Dashboard.css';
+import { getApiCandidates, getWsCandidates, fetchWithFallback } from './apiClient';
 
 // Client-side logging helper that also writes a small in-page buffer
 function logClient(...args) {
@@ -29,107 +30,8 @@ function errorClient(...args) {
   console.error(...args);
 }
 
-// API / WebSocket candidate helpers and fallback fetch
-function getApiCandidates() {
-  const apiUrl = process.env.REACT_APP_API_URL;
-
-  const hostname = window.location.hostname;
-  const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-
-  // Codespaces: detect hostnames like <name>-<port>.app.github.dev and map to -8000
-  const codespaceMatch = hostname.match(/^(.*)-(\d+)\.app\.github\.dev$/);
-  // If a REACT_APP_API_URL is provided and points to localhost, but the
-  // browser is visiting a Codespace hostname, rewrite it to the Codespace
-  // mapped -8000 hostname so API calls go to the forwarded API tunnel.
-  if (apiUrl && apiUrl.includes('localhost') && codespaceMatch) {
-    const base = codespaceMatch[1];
-    const primary = `${protocol}://${base}-8000.app.github.dev`;
-    const fallback = `${protocol}://${hostname}:8000`;
-    logClient('REACT_APP_API_URL rewritten from localhost to Codespace candidates', { original: apiUrl, candidates: [primary, fallback] });
-    return [primary, fallback];
-  }
-
-  if (apiUrl) return [apiUrl];
-  if (codespaceMatch) {
-    const base = codespaceMatch[1];
-    const primary = `${protocol}://${base}-8000.app.github.dev`;
-    const fallback = `${protocol}://${hostname}:8000`; // same host, explicit :8000
-    const candidates = [primary, fallback];
-    logClient('API candidates (codespace):', candidates);
-    return candidates;
-  }
-
-  // In local development (CRA), use relative paths so the dev server can proxy
-  if (process.env.NODE_ENV === 'development') {
-    logClient('API candidates (development):', ['']);
-    return [''];
-  }
-
-  // Production: assume API is on same host but different port
-  const prodCandidate = `${protocol}://${hostname}:8000`;
-  logClient('API candidates (production):', [prodCandidate]);
-  return [prodCandidate];
-}
-
-function getWsCandidates() {
-  const apiCandidates = getApiCandidates();
-  const wsCandidates = apiCandidates.map(u => {
-    if (!u) {
-      // relative -> derive from current location
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const hostname = window.location.hostname;
-      const codespaceMatch = hostname.match(/^(.*)-(\d+)\.app\.github\.dev$/);
-      if (codespaceMatch) {
-        const apiHost = `${codespaceMatch[1]}-8000.app.github.dev`;
-        return `${proto}://${apiHost}`;
-      }
-      const host = window.location.host.replace(/:3000$/, ':8000');
-      return `${proto}://${host}`;
-    }
-    return `${u.startsWith('https') ? 'wss' : 'ws'}://${u.replace(/^https?:\/\//, '')}`;
-  });
-  logClient('WebSocket candidates:', wsCandidates);
-  return wsCandidates;
-}
-
-
-
-// Helper to try fetch against multiple API candidates sequentially
-async function fetchWithFallback(path, options = {}) {
-  const candidatesRaw = getApiCandidates();
-  // If the dashboard is not running on localhost, prefer non-localhost candidates.
-  const candidates = candidatesRaw.filter(c => {
-    if (!c) return true; // keep relative candidate
-    if (c.includes('localhost') && window.location.hostname !== 'localhost') {
-      logClient('fetchWithFallback: removing localhost candidate because browser host is not localhost', c);
-      return false;
-    }
-    return true;
-  });
-  logClient('fetchWithFallback: candidates to try', candidates);
-  const errors = [];
-  for (const base of candidates) {
-    const url = base ? `${base}${path.startsWith('/') ? path : `/${path}`}` : path;
-    logClient('fetchWithFallback: trying', url);
-    try {
-      const res = await fetch(url, options);
-      logClient('fetchWithFallback: response', url, res.status);
-      if (!res.ok) {
-        // Return the response so caller can inspect status (and we log it)
-        warnClient('fetchWithFallback: non-OK response', url, res.status);
-        return res;
-      }
-      return res;
-    } catch (err) {
-      warnClient('fetchWithFallback: error for', url, err && err.message ? err.message : err);
-      errors.push({ url, err });
-      // try next candidate
-    }
-  }
-  // If all failed, throw last error
-  const last = errors.length ? errors[errors.length - 1].err : new Error('No candidates');
-  throw last;
-}
+// Centralized API client functions live in `apiClient.js` to ensure consistent
+// candidate selection and fallback behavior across dashboard modules.
 
 // WebSocket connection manager
 class WebSocketManager {
@@ -259,17 +161,28 @@ const EnhancedDashboard = () => {
     setError(null);
 
     try {
+      logClient('handleLogin: attempting login for user', loginForm.username);
       const response = await fetchWithFallback('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
       });
 
+      logClient('handleLogin: response received', response.status, response.ok);
+
       if (!response.ok) {
-        throw new Error('Login failed');
+        let errorMsg = 'Login failed';
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.detail || errorData.message || errorMsg;
+        } catch (e) {
+          errorMsg = `Login failed with status ${response.status}`;
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
+      logClient('handleLogin: login successful, setting token');
       setToken(data.access_token);
       setIsAuthenticated(true);
       setUser({ username: loginForm.username });
@@ -280,7 +193,9 @@ const EnhancedDashboard = () => {
       // Load initial data
       loadInitialData(data.access_token);
     } catch (err) {
-      setError(err.message);
+      const errorMsg = err.message || 'Unknown error occurred';
+      logClient('handleLogin: error', errorMsg);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

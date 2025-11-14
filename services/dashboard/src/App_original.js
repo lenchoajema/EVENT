@@ -4,6 +4,7 @@ import axios from 'axios';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
+import { fetchWithFallback } from './apiClient';
 
 // Fix for default marker icons in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -13,7 +14,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Note: dashboard now uses `fetchWithFallback` for robust candidate selection.
 
 function App() {
   const [alerts, setAlerts] = useState([]);
@@ -33,20 +34,20 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const [alertsRes, uavsRes, detectionsRes] = await Promise.all([
-        axios.get(`${API_URL}/api/alerts`),
-        axios.get(`${API_URL}/api/uavs`),
-        axios.get(`${API_URL}/api/detections`),
+      const [alertsData, uavsData, detectionsData] = await Promise.all([
+        fetchWithFallback('/api/alerts').then(r => r.json()),
+        fetchWithFallback('/api/uavs').then(r => r.json()),
+        fetchWithFallback('/api/detections').then(r => r.json()),
       ]);
 
-      setAlerts(alertsRes.data);
-      setUavs(uavsRes.data);
-      setDetections(detectionsRes.data);
+      setAlerts(alertsData);
+      setUavs(uavsData);
+      setDetections(detectionsData);
 
       setStats({
-        totalAlerts: alertsRes.data.length,
-        activeUavs: uavsRes.data.filter(u => u.status !== 'idle').length,
-        totalDetections: detectionsRes.data.length,
+        totalAlerts: (alertsData && alertsData.length) || 0,
+        activeUavs: (uavsData && uavsData.filter && uavsData.filter(u => u.status !== 'idle').length) || 0,
+        totalDetections: (detectionsData && detectionsData.length) || 0,
       });
     } catch (error) {
       console.error('Error fetching data:', error);

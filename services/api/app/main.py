@@ -148,7 +148,7 @@ app.add_middleware(
     allow_credentials=True if "*" not in cors_origins else False,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex=r".*\.github\.dev$" if not cors_origins else None,
+    allow_origin_regex=r"https?://(.*-)?\d+\.app\.github\.dev(:\d+)?$|.*\.github\.dev$" if not cors_origins else None,
 )
 
 # Include lightweight MVP routes that implement core /api/* endpoints

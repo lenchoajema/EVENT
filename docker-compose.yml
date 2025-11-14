@@ -245,10 +245,10 @@ services:
       dockerfile: Dockerfile
     container_name: event_dashboard
     environment:
-      # For Codespaces testing, point the client at the Codespace-mapped API host.
-      # Replace `<CODESPACE_BASE>` with your Codespace prefix if different.
-      REACT_APP_API_URL: https://fluffy-fiesta-jj7rrx6x6jr5hjj5g-8000.app.github.dev
-      REACT_APP_WS_URL: wss://fluffy-fiesta-jj7rrx6x6jr5hjj5g-8000.app.github.dev/ws
+      # Leave empty to allow client-side detection of Codespace vs localhost
+      # The EnhancedDashboard.js will automatically detect the environment
+      REACT_APP_API_URL: ""
+      REACT_APP_WS_URL: ""
     ports:
       - "3000:3000"
     depends_on:
