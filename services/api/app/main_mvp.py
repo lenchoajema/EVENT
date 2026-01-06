@@ -15,6 +15,8 @@ from .schemas import (
 )
 from .mqtt_client import MQTTClient
 from .config import DEV_MODE
+from .auth import get_current_user
+from .auth_models import User
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -80,7 +82,7 @@ async def health_check():
 
 # Satellite Alerts endpoints
 @app.post("/api/alerts")
-def create_alert(alert: dict, db: Session = Depends(get_db)):
+def create_alert(alert: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create an alert. This endpoint is resilient: if the database is
     unavailable we echo the input and return a minimal success response so
     tests and dev environments can proceed without a running Postgres.
@@ -114,7 +116,7 @@ def create_alert(alert: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 @app.get("/api/alerts")
-def get_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         alerts = db.query(SatelliteAlert).offset(skip).limit(limit).all()
         return alerts
@@ -124,7 +126,7 @@ def get_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 @app.get("/api/alerts/{alert_id}", response_model=SatelliteAlertResponse)
-def get_alert(alert_id: int, db: Session = Depends(get_db)):
+def get_alert(alert_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     alert = db.query(SatelliteAlert).filter(SatelliteAlert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -132,7 +134,7 @@ def get_alert(alert_id: int, db: Session = Depends(get_db)):
 
 # UAV endpoints
 @app.post("/api/uavs")
-def create_uav(uav: dict, db: Session = Depends(get_db)):
+def create_uav(uav: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a UAV. Accepts a lightweight payload in dev/test mode and
     returns a minimal UAV representation when DB is unavailable.
     """
@@ -155,7 +157,7 @@ def create_uav(uav: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 @app.get("/api/uavs")
-def get_uavs(db: Session = Depends(get_db)):
+def get_uavs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         uavs = db.query(UAV).all()
         return uavs
@@ -165,14 +167,14 @@ def get_uavs(db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 @app.get("/api/uavs/{uav_id}", response_model=UAVResponse)
-def get_uav(uav_id: int, db: Session = Depends(get_db)):
+def get_uav(uav_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     uav = db.query(UAV).filter(UAV.id == uav_id).first()
     if not uav:
         raise HTTPException(status_code=404, detail="UAV not found")
     return uav
 
 @app.patch("/api/uavs/{uav_id}", response_model=UAVResponse)
-def update_uav_status(uav_id: int, status_update: UAVStatusUpdate, db: Session = Depends(get_db)):
+def update_uav_status(uav_id: int, status_update: UAVStatusUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     uav = db.query(UAV).filter(UAV.id == uav_id).first()
     if not uav:
         raise HTTPException(status_code=404, detail="UAV not found")
@@ -187,7 +189,7 @@ def update_uav_status(uav_id: int, status_update: UAVStatusUpdate, db: Session =
 
 # Detection endpoints
 @app.post("/api/detections")
-def create_detection(detection: dict, db: Session = Depends(get_db)):
+def create_detection(detection: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a detection. Accepts lightweight payloads in dev/test and
     falls back to echoing the input when DB is not available.
     """
@@ -212,17 +214,17 @@ def create_detection(detection: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 @app.get("/api/detections", response_model=List[DetectionResponse])
-def get_detections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_detections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     detections = db.query(Detection).offset(skip).limit(limit).all()
     return detections
 
 @app.get("/api/detections/uav/{uav_id}", response_model=List[DetectionResponse])
-def get_detections_by_uav(uav_id: int, db: Session = Depends(get_db)):
+def get_detections_by_uav(uav_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     detections = db.query(Detection).filter(Detection.uav_id == uav_id).all()
     return detections
 
 @app.get("/api/detections/alert/{alert_id}", response_model=List[DetectionResponse])
-def get_detections_by_alert(alert_id: int, db: Session = Depends(get_db)):
+def get_detections_by_alert(alert_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     detections = db.query(Detection).filter(Detection.alert_id == alert_id).all()
     return detections
 
@@ -232,7 +234,7 @@ def get_detections_by_alert(alert_id: int, db: Session = Depends(get_db)):
 # ============================================================
 
 @app.post("/api/v1/sat/alerts", response_model=SatelliteAlertResponse)
-def create_satellite_alert_v1(alert: SatelliteAlertCreate, db: Session = Depends(get_db)):
+def create_satellite_alert_v1(alert: SatelliteAlertCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Receive satellite detection alerts.
     
@@ -293,7 +295,7 @@ def get_tiles(
 
 
 @app.get("/api/v1/tiles/{tile_id}")
-def get_tile(tile_id: str, db: Session = Depends(get_db)):
+def get_tile(tile_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve specific tile by ID."""
     try:
         from .models import Tile
@@ -334,7 +336,7 @@ def get_missions(
 
 
 @app.get("/api/v1/missions/{mission_id}")
-def get_mission(mission_id: str, db: Session = Depends(get_db)):
+def get_mission(mission_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get specific mission details."""
     try:
         from .models import Mission
@@ -430,7 +432,7 @@ def assign_uav_sortie(
 
 
 @app.post("/api/v1/detections", response_model=DetectionResponse)
-def create_detection_v1(detection: DetectionCreate, db: Session = Depends(get_db)):
+def create_detection_v1(detection: DetectionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Receive detections from UAV edge nodes.
     
@@ -475,7 +477,7 @@ def get_detections_v1(
 
 
 @app.get("/api/v1/stats")
-def get_system_stats(db: Session = Depends(get_db)):
+def get_system_stats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Get system statistics and metrics.
     

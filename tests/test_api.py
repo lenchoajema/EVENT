@@ -1,8 +1,16 @@
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
+from app.auth import get_current_user
+from app.auth_models import User
 
 client = TestClient(app)
+
+# Bypass auth for tests
+def mock_get_current_user():
+    return User(id="test_user", username="tester", is_active=True)
+
+app.dependency_overrides[get_current_user] = mock_get_current_user
 
 def test_root():
     response = client.get("/")

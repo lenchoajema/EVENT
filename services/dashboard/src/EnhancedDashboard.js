@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from './AuthContext';
 import './Dashboard.css';
 import { getApiCandidates, getWsCandidates, fetchWithFallback } from './apiClient';
 
@@ -129,13 +130,8 @@ class WebSocketManager {
 const wsManager = new WebSocketManager();
 
 const EnhancedDashboard = () => {
-  // Authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  
-  // Login form
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  // Authentication
+  const { user, token, logout } = useAuth();
   
   // Real-time data
   const [uavs, setUavs] = useState([]);
@@ -154,52 +150,7 @@ const EnhancedDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Login handler
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
 
-    try {
-      logClient('handleLogin: attempting login for user', loginForm.username);
-      const response = await fetchWithFallback('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm)
-      });
-
-      logClient('handleLogin: response received', response.status, response.ok);
-
-      if (!response.ok) {
-        let errorMsg = 'Login failed';
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.detail || errorData.message || errorMsg;
-        } catch (e) {
-          errorMsg = `Login failed with status ${response.status}`;
-        }
-        throw new Error(errorMsg);
-      }
-
-      const data = await response.json();
-      logClient('handleLogin: login successful, setting token');
-      setToken(data.access_token);
-      setIsAuthenticated(true);
-      setUser({ username: loginForm.username });
-      
-      // Start WebSocket connections
-      initializeWebSockets(data.access_token);
-      
-      // Load initial data
-      loadInitialData(data.access_token);
-    } catch (err) {
-      const errorMsg = err.message || 'Unknown error occurred';
-      logClient('handleLogin: error', errorMsg);
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Initialize WebSocket connections
   const initializeWebSockets = useCallback((authToken) => {
@@ -268,6 +219,16 @@ const EnhancedDashboard = () => {
     }
   };
 
+
+  // Initialize data on mount
+  useEffect(() => {
+    if (token) {
+       initializeWebSockets(token);
+       loadInitialData(token); 
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // Play alert sound based on priority
   const playAlertSound = (priority) => {
     const audio = new Audio();
@@ -297,62 +258,6 @@ const EnhancedDashboard = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated, token]);
 
-  // Login screen
-  if (!isAuthenticated) {
-    return (
-      <div className="login-container">
-        <div className="login-box">
-          <h1>🛰️ EVENT System</h1>
-          <p>Emergent Vehicle Event-detection via NRT Telemetry</p>
-          
-          {error && <div className="error-message">{error}</div>}
-
-          {/* Inline debug panel (shows recent client debug messages) */}
-          <div style={{marginTop:12, fontSize:12, color:'#666'}}>
-            <strong>Client debug (recent):</strong>
-            <div style={{maxHeight:120, overflow:'auto', background:'#111', color:'#bada55', padding:8, marginTop:6, borderRadius:4}}>
-              {typeof window !== 'undefined' && window.__EVENT_DEBUG_LOG && window.__EVENT_DEBUG_LOG.length > 0 ? (
-                window.__EVENT_DEBUG_LOG.slice(-10).map((line, idx) => (
-                  <div key={idx} style={{fontFamily:'monospace', fontSize:11}}>{line}</div>
-                ))
-              ) : (
-                <div style={{fontFamily:'monospace', fontSize:11}}>no client logs yet</div>
-              )}
-            </div>
-          </div>
-          
-          <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <label>Username</label>
-              <input
-                type="text"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                placeholder="admin"
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                value={loginForm.password}
-                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                placeholder="Event@2025!"
-                required
-              />
-            </div>
-            
-            <button type="submit" disabled={loading}>
-              {loading ? 'Logging in...' : 'Login'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   // Main dashboard
   return (
     <div className="dashboard">
@@ -369,7 +274,7 @@ const EnhancedDashboard = () => {
         <div className="header-right">
           <div className="user-info">
             <span>👤 {user?.username}</span>
-            <button onClick={() => setIsAuthenticated(false)}>Logout</button>
+            <button onClick={logout}>Logout</button>
           </div>
         </div>
       </header>

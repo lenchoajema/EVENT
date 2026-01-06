@@ -103,6 +103,15 @@ export function getWsCandidates() {
 export async function fetchWithFallback(path, options = {}) {
   const candidatesRaw = getApiCandidates();
 
+  // Auto-inject Auth token if present
+  const token = localStorage.getItem('event_token');
+  if (token) {
+    options.headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`
+    };
+  }
+
   // Filter out localhost/127.0.0.1 candidates if the browser is not on localhost
   const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
   const runningOnLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';

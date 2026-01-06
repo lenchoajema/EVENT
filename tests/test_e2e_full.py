@@ -15,11 +15,24 @@ def test_api_health():
 def test_full_mission_workflow():
     """
     Test the complete flow:
-    1. Create UAV
-    2. Create Satellite Alert
-    3. Verify Mission Creation (Scheduler)
-    4. Submit Detection
+    1. Login
+    2. Create UAV
+    3. Create Satellite Alert
+    4. Verify Mission Creation (Scheduler)
+    5. Submit Detection
     """
+    # 0. Login
+    login_data = {"username": "admin", "password": "admin123"}
+    resp = requests.post(f"{API_URL}/api/auth/login", json=login_data)
+    if resp.status_code != 200:
+        print(f"Login failed: {resp.text}. Proceeding without token (might fail if auth enforced).")
+        token = None
+        headers = {}
+    else:
+        token = resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        print("Logged in successfully.")
+
     # 1. Create UAV
     uav_data = {
         "name": f"E2E-Drone-{int(time.time())}",
@@ -28,7 +41,7 @@ def test_full_mission_workflow():
         "battery_level": 100.0,
         "status": "idle"
     }
-    resp = requests.post(f"{API_URL}/api/uavs", json=uav_data)
+    resp = requests.post(f"{API_URL}/api/uavs", json=uav_data, headers=headers)
     assert resp.status_code == 200
     uav_id = resp.json()["id"]
     print(f"Created UAV: {uav_id}")
@@ -45,10 +58,10 @@ def test_full_mission_workflow():
         "longitude": -122.4200,
         "timestamp": "2026-01-06T12:00:00Z"
     }
-    resp = requests.post(f"{API_URL}/api/v1/sat/alerts", json=alert_data)
+    resp = requests.post(f"{API_URL}/api/v1/sat/alerts", json=alert_data, headers=headers)
     # Fallback to older endpoint if v1 prefix not used in all versions
     if resp.status_code == 404:
-        resp = requests.post(f"{API_URL}/api/alerts", json=alert_data)
+        resp = requests.post(f"{API_URL}/api/alerts", json=alert_data, headers=headers)
         
     assert resp.status_code in [200, 201]
     alert_resp = resp.json()
@@ -65,9 +78,9 @@ def test_full_mission_workflow():
     # Retry loop for 10 seconds
     for _ in range(10):
         time.sleep(1)
-        resp = requests.get(f"{API_URL}/api/v1/missions")
+        resp = requests.get(f"{API_URL}/api/v1/missions", headers=headers)
         if resp.status_code == 404:
-             resp = requests.get(f"{API_URL}/api/missions")
+             resp = requests.get(f"{API_URL}/api/missions", headers=headers)
              
         if resp.status_code == 200:
             missions = resp.json()
@@ -100,9 +113,9 @@ def test_full_mission_workflow():
             "timestamp": "2026-01-06T12:00:05Z",
             "image_url": "s3://bucket/fire.jpg"
         }
-        resp = requests.post(f"{API_URL}/api/v1/detections", json=detection_data)
+        resp = requests.post(f"{API_URL}/api/v1/detections", json=detection_data, headers=headers)
         if resp.status_code == 404:
-             resp = requests.post(f"{API_URL}/api/detections", json=detection_data)
+             resp = requests.post(f"{API_URL}/api/detections", json=detection_data, headers=headers)
              
         assert resp.status_code in [200, 201]
         print("Detection submitted successfully")
