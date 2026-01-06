@@ -489,3 +489,39 @@ networks:
 **Deployment Status**: ✅ Production Ready
 
 **Last Updated**: November 7, 2025
+
+## ☸️ Kubernetes Deployment
+
+### Prerequisites
+- kubectl
+- A running Kubernetes cluster (Minikube, K3s, AKS, EKS, GKE)
+
+### 1. Apply Configuration
+```bash
+kubectl apply -f k8s/config_secrets.yaml
+```
+
+### 2. Deploy Infrastructure
+```bash
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/redis.yaml
+kubectl apply -f k8s/mqtt.yaml
+kubectl apply -f k8s/minio.yaml
+```
+
+### 3. Deploy Applications
+```bash
+kubectl apply -f k8s/api.yaml
+kubectl apply -f k8s/scheduler.yaml
+kubectl apply -f k8s/dashboard.yaml
+```
+
+### 4. Setup Ingress
+```bash
+kubectl apply -f k8s/ingress.yaml
+```
+
+### 5. Verify Status
+```bash
+kubectl get pods
+```

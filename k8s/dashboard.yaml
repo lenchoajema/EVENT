@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: ghcr.io/lenchoajema/event-dashboard:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        env:
+        - name: REACT_APP_API_URL
+          value: "http://api:8000" # Should be Ingress URL in production
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: dashboard
