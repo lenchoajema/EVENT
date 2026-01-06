@@ -25,3 +25,13 @@ def _parse_bool(s: str) -> bool:
 
 # Read once at import-time
 DEV_MODE = _parse_bool(os.getenv("DEV_MODE", "true"))
+
+# Alerting Configuration
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+ENABLE_EMAIL_ALERTS = _parse_bool(os.getenv("ENABLE_EMAIL_ALERTS", "false"))
+ENABLE_SLACK_ALERTS = _parse_bool(os.getenv("ENABLE_SLACK_ALERTS", "false"))
+

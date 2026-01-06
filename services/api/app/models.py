@@ -87,7 +87,7 @@ class SatelliteAlert(Base):
     severity = Column(String(20), default="medium")  # low, medium, high, critical
     priority = Column(Integer, default=0, index=True)
     status = Column(String(20), default="new", index=True)  # new, assigned, investigating, verified, false_positive
-    meta_data = Column(JSON)
+    meta_data = Column("metadata", JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tile = relationship("Tile", back_populates="alerts")

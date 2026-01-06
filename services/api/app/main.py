@@ -29,7 +29,8 @@ from .auth_models import User, Role, RefreshToken, AuditLog, Zone, SystemConfig
 from .schemas import (
     SatelliteAlertCreate, SatelliteAlertResponse,
     UAVCreate, UAVResponse, UAVStatusUpdate,
-    DetectionCreate, DetectionResponse
+    DetectionCreate, DetectionResponse,
+    TileBase, TileResponse
 )
 from .schemas_enhanced import (
     # Auth
@@ -67,6 +68,9 @@ from .websocket import websocket_endpoint, manager as ws_manager
 # MQTT client
 from .mqtt_client import MQTTClient
 
+# Notifications
+from .notifications import notification_manager
+
 # Algorithms
 from .algorithms import (
     AStarPathfinder, DubinsPathPlanner, CoveragePatternGenerator,
@@ -98,6 +102,10 @@ async def lifespan(app: FastAPI):
 
         # Initialize DB roles/admin if DB available
         try:
+            # Create tables if they don't exist
+            Base.metadata.create_all(bind=engine)
+            logger.info("✓ Database tables created (lifespan)")
+
             db = next(get_db())
             initialize_roles(db)
             create_default_admin(db)
@@ -555,6 +563,162 @@ async def get_current_user_info(
         last_login=user.last_login,
         created_at=user.created_at
     )
+
+
+# ============================================================
+# Core Business Logic (UAVs, Alerts, Detections)
+# ============================================================
+
+@app.post("/api/satellite/alerts", response_model=SatelliteAlertResponse)
+def create_satellite_alert(
+    alert: SatelliteAlertCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new satellite alert and notify system."""
+    import uuid
+    from geoalchemy2.elements import WKTElement
+    
+    alert_id = f"ALERT_{uuid.uuid4().hex[:8].upper()}"
+    alert_dict = alert.dict()
+    alert_dict["alert_id"] = alert_id
+    
+    # Map Pydantic 'metadata' to SQLAlchemy 'meta_data'
+    if "metadata" in alert_dict:
+        alert_dict["meta_data"] = alert_dict.pop("metadata")
+    
+    if alert_dict.get("latitude") and alert_dict.get("longitude"):
+        point = f"POINT({alert_dict['longitude']} {alert_dict['latitude']})"
+        alert_dict["position"] = WKTElement(point, srid=4326)
+    
+    db_alert = SatelliteAlert(**alert_dict)
+    db.add(db_alert)
+    db.commit()
+    db.refresh(db_alert)
+    
+    # Notify MQTT
+    try:
+        mqtt_client.publish_alert(db_alert.id, alert.dict())
+    except Exception as e:
+        logger.error(f"Failed to publish to MQTT: {e}")
+    
+    # Trigger notifications for high severity
+    if alert.severity in ["high", "critical"]:
+        try:
+            notification_manager.send_alert(
+                f"New {alert.severity.upper()} Alert: {alert.event_type}",
+                f"Location: {alert.latitude}, {alert.longitude}\nDescription: {alert.description}",
+                recipients=["ops@event.com"]
+            )
+        except Exception:
+            pass
+    
+    logger.info(f"Created alert {alert_id}")
+    return db_alert
+
+@app.get("/api/satellite/alerts")
+def get_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    return db.query(SatelliteAlert).offset(skip).limit(limit).all()
+
+
+@app.post("/api/v1/tiles", response_model=TileResponse)
+def create_tile(tile: TileBase, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Create a new coverage tile."""
+    from geoalchemy2.elements import WKTElement
+    
+    # Check if exists
+    if db.query(Tile).filter(Tile.tile_id == tile.tile_id).first():
+        raise HTTPException(status_code=400, detail="Tile ID already exists")
+
+    # Create Polygon geometry (simple box around center)
+    delta = 0.05
+    lat, lon = tile.center_lat, tile.center_lon
+    poly_wkt = f"POLYGON(({lon-delta} {lat-delta}, {lon+delta} {lat-delta}, {lon+delta} {lat+delta}, {lon-delta} {lat+delta}, {lon-delta} {lat-delta}))"
+    
+    db_tile = Tile(
+        tile_id=tile.tile_id,
+        center_lat=tile.center_lat,
+        center_lon=tile.center_lon,
+        priority=tile.priority,
+        status=tile.status,
+        geometry=WKTElement(poly_wkt, srid=4326)
+    )
+    db.add(db_tile)
+    db.commit()
+    db.refresh(db_tile)
+    return db_tile
+
+@app.get("/api/v1/tiles", response_model=List[TileResponse])
+def get_tiles(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all coverage tiles."""
+    return db.query(Tile).offset(skip).limit(limit).all()
+
+@app.get("/api/uavs", response_model=List[UAVResponse])
+def get_uavs(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    return db.query(UAV).all()
+
+@app.post("/api/uavs", response_model=UAVResponse)
+def create_uav(uav: UAVCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    db_uav = UAV(**uav.dict())
+    db.add(db_uav)
+    db.commit()
+    db.refresh(db_uav)
+    return db_uav
+
+@app.get("/api/uavs/{uav_id}", response_model=UAVResponse)
+def get_uav(uav_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    uav = db.query(UAV).filter(UAV.id == uav_id).first()
+    if not uav:
+        raise HTTPException(status_code=404, detail="UAV not found")
+    return uav
+
+@app.patch("/api/uavs/{uav_id}", response_model=UAVResponse)
+def update_uav_status(
+    uav_id: int, 
+    status_update: UAVStatusUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: dict = Depends(get_current_user)
+):
+    uav = db.query(UAV).filter(UAV.id == uav_id).first()
+    if not uav:
+        raise HTTPException(status_code=404, detail="UAV not found")
+    
+    for key, value in status_update.dict(exclude_unset=True).items():
+        setattr(uav, key, value)
+    
+    db.commit()
+    db.refresh(uav)
+    return uav
+
+@app.post("/api/detections", response_model=DetectionResponse)
+def create_detection(
+    detection: DetectionCreate, 
+    db: Session = Depends(get_db), 
+    current_user: dict = Depends(get_current_user)
+):
+    db_detection = Detection(**detection.dict())
+    db.add(db_detection)
+    db.commit()
+    db.refresh(db_detection)
+    
+    # Notify if high confidence
+    if detection.confidence > 0.8:
+        try:
+            notification_manager.send_slack(f"🎯 High Confidence Detection: {detection.detection_type} ({detection.confidence:.2f})")
+        except Exception:
+            pass
+
+    return db_detection
+
+@app.get("/api/detections", response_model=List[DetectionResponse])
+def get_detections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    return db.query(Detection).offset(skip).limit(limit).all()
+
 
 
 # Continue in next file due to size...
