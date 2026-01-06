@@ -20,6 +20,7 @@ Real-time coordination of satellite imagery and UAV missions for defense, survei
 - **AI-Powered Detection**: YOLOv8-based object detection (people, vehicles, camps)
 - **Geospatial Storage**: PostGIS for spatial data + MinIO for evidence storage
 - **Live Dashboard**: React-based visualization with mission tracking
+- **Mobile Companion App**: Field operator interface for Android/iOS (React Native)
 - **MQTT Telemetry**: Real-time UAV communication and monitoring
 
 ## 🏗️ Architecture
