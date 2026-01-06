@@ -1,4 +1,11 @@
-# UAV-Satellite Event Analysis MVP
+# UAV-Satellite Event Analysis
+
+[![Release](https://img.shields.io/github/v/release/lenchoajema/EVENT?style=flat-square)](https://github.com/lenchoajema/EVENT/releases)
+[![License](https://img.shields.io/github/license/lenchoajema/EVENT?style=flat-square)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-blue?style=flat-square&logo=docker)](docker-compose.yml)
+[![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square&logo=python)](https://www.python.org/)
+[![React](https://img.shields.io/badge/react-18-blue?style=flat-square&logo=react)](https://reactjs.org/)
+[![FastAPI](https://img.shields.io/badge/fastapi-0.109-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
 
 ## 🎯 Mission
 
@@ -68,7 +75,67 @@ Real-time coordination of satellite imagery and UAV missions for defense, survei
 
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### Option A: Use Released Version (Recommended)
+
+#### 1. Download Release
+
+```bash
+# Download the latest release
+wget https://github.com/lenchoajema/EVENT/archive/refs/tags/v1.0.0.tar.gz
+tar -xzf v1.0.0.tar.gz
+cd EVENT-1.0.0
+```
+
+Or clone with specific tag:
+
+```bash
+git clone --depth 1 --branch v1.0.0 https://github.com/lenchoajema/EVENT.git
+cd EVENT
+```
+
+#### 2. Configure Environment
+
+```bash
+# Create environment file
+cp .env.example .env
+
+# Optional: Edit .env for custom settings
+# nano .env
+```
+
+#### 3. Pull Pre-built Images (Faster)
+
+```bash
+# Pull images from GitHub Container Registry
+docker-compose pull
+
+# Or use the convenience script
+./scripts/pull_release_images.sh
+```
+
+#### 4. Start Services
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api dashboard
+```
+
+#### 5. Initialize and Run Demo
+
+```bash
+# Wait for services to be healthy (~30s)
+./scripts/init.sh
+
+# Generate sample satellite alerts
+./scripts/demo_live.sh
+```
+
+### Option B: Build from Source
+
+#### 1. Clone Repository
 
 ```bash
 git clone https://github.com/lenchoajema/EVENT.git
@@ -76,7 +143,7 @@ cd EVENT
 cp .env.example .env
 ```
 
-### 2. Build and Start Services
+#### 2. Build and Start Services
 
 ```bash
 # Build all containers
@@ -89,7 +156,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### 3. Initialize Database
+#### 3. Initialize Database
 
 ```bash
 # Wait for services to be healthy
