@@ -1,6 +1,7 @@
 # UAV-Satellite Event Analysis
 
 [![Release](https://img.shields.io/github/v/release/lenchoajema/EVENT?style=flat-square)](https://github.com/lenchoajema/EVENT/releases)
+[![CI/CD Pipeline](https://github.com/lenchoajema/EVENT/actions/workflows/ci.yml/badge.svg)](https://github.com/lenchoajema/EVENT/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/lenchoajema/EVENT?style=flat-square)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue?style=flat-square&logo=docker)](docker-compose.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square&logo=python)](https://www.python.org/)
