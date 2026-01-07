@@ -169,6 +169,14 @@ except Exception:
     # If MVP routes cannot be included (missing deps), continue without them
     logger.debug("Could not include main_mvp routes; continuing without MVP API endpoints")
 
+# Include analytics router
+try:
+    from .routers import analytics_router
+    app.include_router(analytics_router)
+    logger.info("✓ Analytics router included")
+except Exception as e:
+    logger.debug(f"Could not include analytics router: {e}")
+
 # Initialize MQTT client
 mqtt_client = MQTTClient()
 
