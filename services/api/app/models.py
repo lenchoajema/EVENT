@@ -108,7 +108,7 @@ class Detection(Base):
     longitude = Column(Float)
     bbox = Column(JSON)  # Bounding box coordinates
     image_url = Column(String(500))
-    meta_data = Column(JSON)
+    meta_data = Column("metadata", JSON)
     verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 

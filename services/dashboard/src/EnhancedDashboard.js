@@ -249,14 +249,14 @@ const EnhancedDashboard = () => {
 
   // Auto-refresh metrics every 30 seconds
   useEffect(() => {
-    if (!isAuthenticated || !token) return;
+    if (!token) return;
 
     const interval = setInterval(() => {
       loadInitialData(token);
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, token]);
+  }, [token]);
 
   // Main dashboard
   return (

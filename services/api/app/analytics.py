@@ -73,7 +73,7 @@ class PerformanceEvaluator:
         
         # Detection metrics
         detections = self.db.query(Detection).filter(
-            Detection.timestamp.between(start_time, end_time)
+            Detection.created_at.between(start_time, end_time)
         ).all()
         
         hours = (end_time - start_time).total_seconds() / 3600
@@ -120,7 +120,7 @@ class PerformanceEvaluator:
         
         # Alert count
         alerts = self.db.query(SatelliteAlert).filter(
-            SatelliteAlert.timestamp.between(start_time, end_time)
+            SatelliteAlert.created_at.between(start_time, end_time)
         ).count()
         
         return PerformanceMetrics(
@@ -150,7 +150,7 @@ class PerformanceEvaluator:
             interval_end = current_time + timedelta(hours=interval_hours)
             
             count = self.db.query(Detection).filter(
-                Detection.timestamp.between(current_time, interval_end)
+                Detection.created_at.between(current_time, interval_end)
             ).count()
             
             trends.append({
