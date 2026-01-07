@@ -197,25 +197,28 @@ const EnhancedDashboard = () => {
 
     try {
       // Load UAVs
-      const uavsRes = await fetchWithFallback('/api/v1/uavs', { headers });
+      const uavsRes = await fetchWithFallback('/api/uavs', { headers });
       const uavsData = await uavsRes.json();
-      setUavs(uavsData);
+      setUavs(Array.isArray(uavsData) ? uavsData : []);
 
       // Load missions
       const missionsRes = await fetchWithFallback('/api/v1/missions', { headers });
       const missionsData = await missionsRes.json();
-      setMissions(missionsData);
+      setMissions(Array.isArray(missionsData) ? missionsData : []);
 
       // Load analytics
-      const metricsRes = await fetchWithFallback('/api/v2/analytics/performance', { headers });
+      const metricsRes = await fetchWithFallback('/api/v1/analytics/performance', { headers });
       const metricsData = await metricsRes.json();
       setMetrics(metricsData);
 
-      const coverageRes = await fetchWithFallback('/api/v2/analytics/coverage', { headers });
+      const coverageRes = await fetchWithFallback('/api/v1/analytics/coverage', { headers });
       const coverageData = await coverageRes.json();
       setCoverage(coverageData);
     } catch (err) {
       console.error('Error loading data:', err);
+      // Ensure arrays are initialized even on error
+      setUavs([]);
+      setMissions([]);
     }
   };
 
