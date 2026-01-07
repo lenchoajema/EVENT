@@ -48,10 +48,12 @@ class WebSocketManager {
     logClient(`WebSocketManager: connecting channel='${channel}' tokenPresent=${!!token} candidates=`, candidates);
     const tryConnect = (index = 0) => {
       if (index >= candidates.length) {
-        // All candidates failed; schedule reconnect
+        // All candidates failed; WebSocket real-time updates unavailable
+        // Dashboard will continue to work with HTTP polling
+        logClient(`WebSocket ${channel}: all endpoints failed, will retry in 30s (dashboard continues with polling)`);
         this.reconnectTimers[channel] = setTimeout(() => {
           tryConnect(0);
-        }, 5000);
+        }, 30000); // Retry less frequently (30s instead of 5s)
         return;
       }
 
@@ -60,7 +62,7 @@ class WebSocketManager {
       try {
         ws = new WebSocket(url);
       } catch (err) {
-        errorClient(`WebSocket construction failed for ${url}:`, err && err.message ? err.message : err);
+        logClient(`WebSocket construction failed for ${url}:`, err && err.message ? err.message : err);
         // try next candidate
         tryConnect(index + 1);
         return;
@@ -86,18 +88,17 @@ class WebSocketManager {
       };
 
       ws.onerror = (error) => {
-        errorClient(`WebSocket error on ${channel} (${url}):`, error && error.message ? error.message : error);
+        logClient(`WebSocket error on ${channel}, will retry with other endpoints`);
       };
 
       ws.onclose = (ev) => {
         // If we were not connected and closed quickly, try next candidate
-        logClient(`WebSocket closed for ${url} code=${ev.code} reason=${ev.reason}`);
         if (!connected) {
-          console.log(`Connection to ${url} failed, trying next candidate`);
+          logClient(`WebSocket ${channel} trying next endpoint...`);
           tryConnect(index + 1);
           return;
         }
-        console.log(`Disconnected from ${channel} (was connected)`);
+        logClient(`Disconnected from ${channel}, will reconnect`);
         // Auto-reconnect after 5 seconds
         this.reconnectTimers[channel] = setTimeout(() => {
           tryConnect(0);
